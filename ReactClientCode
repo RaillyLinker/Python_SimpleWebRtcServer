@@ -1,0 +1,40 @@
+const View: React.FC = () => {
+  const localVideo = useRef<HTMLVideoElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+
+  useEffect(() => {
+    const start = async () => {
+      // 웹캠 비디오 스트림 요청(권한을 허용하면 MediaStream 객체가 반환됩니다.)
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // <video> 태그에 스트림을 연결하여 로컬 화면에 영상 표시.
+      if (localVideo.current) localVideo.current.srcObject = stream;
+
+      // 새로운 RTCPeerConnection을 생성하고, ref에 저장하여 나중에도 접근 가능하게 만듭니다.
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
+
+      // WebRTC 연결에 비디오 트랙을 추가합니다.(서버로 비디오 스트림을 전송할 준비 완료.)
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      // 클라이언트가 offer를 생성하고, 자신에게 설정합니다.
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      // FastAPI 서버의 /offer 엔드포인트에 offer SDP를 전송합니다.
+      const response = await fetch('http://localhost:8000/offer', {
+        method: 'POST',
+        body: JSON.stringify({ sdp: pc.localDescription }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      // 서버로부터 받은 answer SDP를 사용해 PeerConnection을 완성합니다.
+      // 이제 클라이언트는 서버와 WebRTC를 통해 영상 스트림을 전송합니다.
+      const answer = await response.json();
+      await pc.setRemoteDescription(new RTCSessionDescription(answer.sdp));
+    };
+
+    start();
+  }, []);
+
+  return <video ref={localVideo} autoPlay playsInline />;
+};
